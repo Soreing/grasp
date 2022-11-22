@@ -151,9 +151,12 @@ func (p *Pool) store(r *resource) {
 // is set till the expiry of the next idle item, or canceled if the list is empty
 func (p *Pool) dropLast() {
 	p.idle[0].value.PoolRelease()
-	p.idle = p.idle[1:]
-	p.icnt--
 	p.count--
+	p.icnt--
+	
+	for i := 0; i < p.icnt; i++ {
+		p.idle[i] = p.idle[i+1] 
+	}
 
 	if p.icnt == 0 {
 		p.expiry = false
