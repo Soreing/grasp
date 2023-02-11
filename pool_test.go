@@ -24,7 +24,7 @@ func TestServe_Empty(t *testing.T) {
 	pl := NewPool(5, time.Second, func() Poolable {
 		count++
 		return NewItem(count)
-	})
+	}).(*pool)
 
 	val1, done1, err1 := pl.Acquire(context.Background())
 	val2, done2, err2 := pl.Acquire(context.Background())
@@ -53,7 +53,7 @@ func TestServe_Empty(t *testing.T) {
 func TestServe_Idle(t *testing.T) {
 	pl := NewPool(5, time.Second, func() Poolable {
 		return NewItem(0)
-	})
+	}).(*pool)
 
 	pl.count += 3
 	pl.exch <- &resource{value: NewItem(1)}
@@ -87,7 +87,7 @@ func TestServe_Idle(t *testing.T) {
 func TestServe_Full(t *testing.T) {
 	pl := NewPool(3, time.Second, func() Poolable {
 		return NewItem(0)
-	})
+	}).(*pool)
 
 	pl.count += 3
 	done := false
@@ -109,7 +109,7 @@ func TestServe_Full(t *testing.T) {
 func TestRelease(t *testing.T) {
 	pl := NewPool(3, time.Second, func() Poolable {
 		return NewItem(0)
-	})
+	}).(*pool)
 
 	val1, done1, err1 := pl.Acquire(context.Background())
 	val2, done2, err2 := pl.Acquire(context.Background())
@@ -135,7 +135,7 @@ func TestRelease(t *testing.T) {
 func TestExpire(t *testing.T) {
 	pl := NewPool(3, time.Millisecond*100, func() Poolable {
 		return NewItem(0)
-	})
+	}).(*pool)
 
 	val1, done1, err1 := pl.Acquire(context.Background())
 	val2, done2, err2 := pl.Acquire(context.Background())
@@ -168,4 +168,3 @@ func TestExpire(t *testing.T) {
 		}
 	}
 }
-

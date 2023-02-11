@@ -11,6 +11,11 @@ type Poolable interface {
 	PoolRelease() // Called when the resource is permanently removed from the pool
 }
 
+type Pool interface {
+	Acquire(context.Context) (any, func(), error)
+	Close()
+}
+
 type resource struct {
 	value  Poolable  // The pooled value
 	expiry time.Time // Time till the resource is permanently removed
@@ -21,7 +26,7 @@ type request struct {
 	ctx context.Context // Context of the request to allow for cancellation
 }
 
-type Pool struct {
+type pool struct {
 	count  int             // Current count of resources
 	limit  int             // Upper count limit of resources
 	ttl    time.Duration   // Time To Live duration of idle resources
@@ -45,8 +50,8 @@ func NewPool(
 	limit int,
 	ttl time.Duration,
 	constr func() Poolable,
-) *Pool {
-	p := &Pool{
+) Pool {
+	p := &pool{
 		count:  0,
 		limit:  limit,
 		ttl:    ttl,
@@ -74,7 +79,7 @@ func NewPool(
 
 // Core handler of the pool, serving requests for resources and storing resources
 // which have been freed up. Removes old resources if they have expired
-func (p *Pool) handler() {
+func (p *pool) handler() {
 	defer p.wg.Done()
 	for active := true; active; {
 		if p.expiry {
@@ -104,7 +109,7 @@ func (p *Pool) handler() {
 // Serves a reqest or sets it as pending. If there is an idle resource, the request
 // is immediately fulfilled. If there are no idle resources, one is created if there
 // is capacity, otherwise the request will need to wait, and is set to pending.
-func (p *Pool) serve(r *request) {
+func (p *pool) serve(r *request) {
 	if p.icnt == 0 {
 		if p.count < p.limit {
 			p.count++
@@ -125,7 +130,7 @@ func (p *Pool) serve(r *request) {
 // Stores a resource that was freed up. If there is a pending request, the resource
 // is immediately used to fulfill it. Otherwise, the respurce is set to be idle, and
 // if idle for too long, gets removed. Cancelled requests are skipped
-func (p *Pool) store(r *resource) {
+func (p *pool) store(r *resource) {
 	for idx := 0; idx < len(p.pend); {
 		select {
 		case <-p.pend[idx].ctx.Done():
@@ -149,13 +154,13 @@ func (p *Pool) store(r *resource) {
 
 // Removes the oldest resource in the idle list permanently from the pool. The timer
 // is set till the expiry of the next idle item, or canceled if the list is empty
-func (p *Pool) dropLast() {
+func (p *pool) dropLast() {
 	p.idle[0].value.PoolRelease()
 	p.count--
 	p.icnt--
-	
+
 	for i := 0; i < p.icnt; i++ {
-		p.idle[i] = p.idle[i+1] 
+		p.idle[i] = p.idle[i+1]
 	}
 
 	if p.icnt == 0 {
@@ -167,7 +172,7 @@ func (p *Pool) dropLast() {
 
 // Rejects pending requests, releases idle resources and waits for in use resources
 // to return before quitting
-func (p *Pool) cleanup() {
+func (p *pool) cleanup() {
 	for _, e := range p.pend {
 		close(e.ch)
 	}
@@ -186,10 +191,10 @@ func (p *Pool) cleanup() {
 // Makes a request to the pool to acquire a resource. If the pool is closed, returns
 // with an error. If the resource is acquired, it is returned with a done function
 // to be called when the resource is no longer needed
-func (p *Pool) Acquire(ctx context.Context) (any, func(), error) {
+func (p *pool) Acquire(ctx context.Context) (any, func(), error) {
 	ch := make(chan *resource)
 	select {
-	case _, _ = <-p.close:
+	case <-p.close:
 		return nil, nil, errors.New("pool's closed")
 	default:
 		p.reqs <- &request{
@@ -216,8 +221,7 @@ func (p *Pool) Acquire(ctx context.Context) (any, func(), error) {
 }
 
 // Closes the pool
-func (p *Pool) Close() {
+func (p *pool) Close() {
 	close(p.close)
 	p.wg.Wait()
 }
-
